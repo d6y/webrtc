@@ -27,7 +27,7 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     val staticRoot = Paths.get("src/main/web/")
-    val dir = StaticContent.preCache(staticRoot)
+    val dir = StaticContent.preCache(staticRoot).unsafeRun()
 
     val socket = new InetSocketAddress("127.0.0.1", 9090)
 
