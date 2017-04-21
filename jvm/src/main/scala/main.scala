@@ -21,25 +21,29 @@ object Main {
     (dir: StaticContent.Cache)
     (request: HttpRequestHeader, body: Stream[Task,Byte]): Stream[Task,HttpResponse[Task]] = {
 
-    def notFound: Stream[Task,HttpResponse[Task]] = {
-      println(s"404 - ${request.path}")
-      Stream.emit(HttpResponse(HttpStatusCode.NotFound))
+    dir.get(request.path) match {
+      case None =>
+        println(s"404 - ${request.path}")
+        Stream.emit(HttpResponse(HttpStatusCode.NotFound))
+      case Some(response) => 
+        println(s"OK - ${request.path}")
+        Stream.emit(response)
     }
-
-    def found(response: HttpResponse[Task]): Stream[Task,HttpResponse[Task]] = {
-      println(s"OK - ${request.path}")
-      Stream.emit(response)
-    }
-
-    dir.get(request.path).fold(notFound)(found)
   }
+
+  // Add aliases into the cache, such as / -> index.html
+  def aliasing(cache: StaticContent.Cache): StaticContent.Cache =
+    cache.get(Uri.Path.Root / "index.html") match {
+      case Some(response) => cache + (Uri.Path.Root -> response)
+      case _ => cache
+    }
 
   def main(args: Array[String]): Unit = {
     val staticRoot = Paths.get("src/main/web/")
     val dir = StaticContent.preCache(staticRoot).unsafeRun()
-    //dir.foreach(println)
+    val aliased = aliasing(dir)
 
     val socket = new InetSocketAddress("127.0.0.1", 9090)
-    http.server(socket)(fileService(dir)).run.unsafeRun()
+    http.server(socket)(fileService(aliased)).run.unsafeRun()
   }
 }
