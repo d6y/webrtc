@@ -30,24 +30,25 @@ object StaticContent {
     contentTypeLookup: file.Path => Option[ContentType] = ContentTypes.fromExtension
   ): Task[Cache] = {
 
-    def filePathToUriPath(f: file.Path): Uri.Path = {
-      val elements: Iterator[file.Path] = f.iterator().asScala
-      elements.foldLeft(Uri.Path.Root) { _ / _.toString }
-    }
-
-    def cache(p: file.Path, ct: ContentType): (Uri.Path, HttpResponse[Task]) = {
-      val len = p.toFile.length
-      val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(ct)
-      val read: Stream[Task, Byte] = io.file.readAll[Task](p, 1024*8)
-      val uri = filePathToUriPath(from relativize p)
-      uri -> ok.copy(body=read)
-    }
 
     Directory.filesRecursive(from)
       .map(p => p -> contentTypeLookup(p))
-      .collect{ case (p, Some(ct)) => cache(p, ct) }
+      .collect{ case (p, Some(ct)) => cache(p, from, ct) }
       .runLog
       .map(_.toMap)
+  }
+
+  def cache(p: file.Path, from: file.Path, ct: ContentType): (Uri.Path, HttpResponse[Task]) = {
+    val len = p.toFile.length
+    val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(ct)
+    val read: Stream[Task, Byte] = io.file.readAll[Task](p, 1024*8)
+    val uri = filePathToUriPath(from relativize p)
+    uri -> ok.copy(body=read)
+  }
+
+  def filePathToUriPath(f: file.Path): Uri.Path = {
+    val elements: Iterator[file.Path] = f.iterator().asScala
+    elements.foldLeft(Uri.Path.Root) { _ / _.toString }
   }
 
   object ContentTypes {
