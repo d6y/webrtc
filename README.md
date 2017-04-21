@@ -1,6 +1,10 @@
 
+
+# Quick start
+
+```
 $ sbt
 > webrtcJVM/reStart
+```
 
-
-http://localhost:9090/
+Then open http://localhost:9090/
