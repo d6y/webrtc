@@ -14,37 +14,57 @@ object StaticContent {
 
   type Cache = Map[Uri.Path, HttpResponse[Task]]
 
-  object ContentTypes {
-    val html = ContentType(MediaType.`text/html`, Some(HttpCharset.`UTF-8`), boundary = None)
-
-    val all = Map(
-      ".html" -> html
-    )
-
-    def knownFileTypes(p: file.Path): Boolean = p.toString endsWith ".html"
-  }
-
-  def preCache(from: file.Path): Task[Cache] = {
-
-    import ContentTypes._
+  /**
+   * Pre-caching a directory means recursively walking from a path
+   * and caching all the recognized files into responses.
+   *
+   * - "Recognized" means the file has a known extension such as `.html` in `ContentTypes`.
+   * - The directory is assumed to mapped relative to the root URI (/).
+   *
+   * For example, pre-caching src/resources/web which contains index.html
+   * and foo/baz.html will provide /index.html as the content of the index.html file,
+   * and /foo/baz.html (returning the relevant content).
+   */
+  def preCache(
+    from: file.Path,
+    contentTypeLookup: file.Path => Option[ContentType] = ContentTypes.fromExtension
+  ): Task[Cache] = {
 
     def filePathToUriPath(f: file.Path): Uri.Path = {
       val elements: Iterator[file.Path] = f.iterator().asScala
       elements.foldLeft(Uri.Path.Root) { _ / _.toString }
     }
 
-    def cache(p: file.Path): (Uri.Path, HttpResponse[Task]) = {
+    def cache(p: file.Path, ct: ContentType): (Uri.Path, HttpResponse[Task]) = {
       val len = p.toFile.length
-      val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(html)
+      val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(ct)
       val read: Stream[Task, Byte] = io.file.readAll[Task](p, 1024*8)
       val uri = filePathToUriPath(from relativize p)
       uri -> ok.copy(body=read)
     }
 
     Directory.filesRecursive(from)
-      .filter(knownFileTypes)
-      .map(cache)
+      .map(p => p -> contentTypeLookup(p))
+      .collect{ case (p, Some(ct)) => cache(p, ct) }
       .runLog
       .map(_.toMap)
+  }
+
+  object ContentTypes {
+
+    def fromExtension(p: file.Path): Option[ContentType] =
+      extension(p).collect {
+        case "html" => ContentType(MediaType.`text/html`, Some(HttpCharset.`UTF-8`), boundary = None)
+        case "css"  => ContentType(MediaType.`text/css`, Some(HttpCharset.`UTF-8`), boundary = None)
+        case "js"   => ContentType(MediaType.`application/javascript`, Some(HttpCharset.`UTF-8`), boundary = None)
+        case "png"  => ContentType(MediaType.`image/png`, None, boundary = None)
+        case "jpg"  => ContentType(MediaType.`image/jpeg`, None, boundary = None)
+      }
+
+    private[this] def extension(p: file.Path): Option[String] = {
+      val parts: Array[String] = p.getFileName().toString.split('.')
+      if (parts.length <= 1) None // Length 1 if no '.' in the filename
+      else Some(parts.last)
+    }
   }
 }
