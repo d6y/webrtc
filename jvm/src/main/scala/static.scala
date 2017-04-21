@@ -14,6 +14,8 @@ object StaticContent {
 
   type Cache = Map[Uri.Path, HttpResponse[Task]]
 
+  type FileToContentType = file.Path => Option[ContentType]
+
   /**
    * Pre-caching a directory means recursively walking from a path
    * and caching all the recognized files into responses.
@@ -25,25 +27,29 @@ object StaticContent {
    * and foo/baz.html will provide /index.html as the content of the index.html file,
    * and /foo/baz.html (returning the relevant content).
    */
-  def preCache(
-    from: file.Path,
-    contentTypeLookup: file.Path => Option[ContentType] = ContentTypes.fromExtension
-  ): Task[Cache] = {
-
-
+  def preCache(from: file.Path)(implicit ct: FileToContentType): Task[Cache] =
     Directory.filesRecursive(from)
-      .map(p => p -> contentTypeLookup(p))
-      .collect{ case (p, Some(ct)) => cache(p, from, ct) }
+      .map(cache(from))
       .runLog
       .map(_.toMap)
-  }
 
-  def cache(p: file.Path, from: file.Path, ct: ContentType): (Uri.Path, HttpResponse[Task]) = {
-    val len = p.toFile.length
-    val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(ct)
-    val read: Stream[Task, Byte] = io.file.readAll[Task](p, 1024*8)
+  def cache
+    (from: file.Path)
+    (p: file.Path)
+    (implicit ctLookup: FileToContentType): (Uri.Path, HttpResponse[Task]) = {
+
     val uri = filePathToUriPath(from relativize p)
-    uri -> ok.copy(body=read)
+
+    val resp: HttpResponse[Task] = ctLookup(p) match {
+      case None =>
+        HttpResponse(HttpStatusCode.UnsupportedMediaType)
+      case Some(ct) =>
+        val len = p.toFile.length
+        val ok = HttpResponse[Task](HttpStatusCode.Ok).withBodySize(len).withContentType(ct)
+        val read: Stream[Task, Byte] = io.file.readAll[Task](p, 1024*8)
+        ok.copy(body=read)
+    }
+    uri -> resp
   }
 
   def filePathToUriPath(f: file.Path): Uri.Path = {
@@ -52,6 +58,10 @@ object StaticContent {
   }
 
   object ContentTypes {
+
+    object Implicits {
+      implicit val defaultContentTypeLookup: FileToContentType = ContentTypes.fromExtension _
+    }
 
     def fromExtension(p: file.Path): Option[ContentType] =
       extension(p).collect {

@@ -4,7 +4,6 @@ import fs2._
 import spinoco.fs2.http
 import http._
 import spinoco.protocol.http._
-import spinoco.protocol.http.header.value._
 
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
@@ -35,6 +34,7 @@ object Main {
   def main(args: Array[String]): Unit = {
 
     // Precache html, css, etc on disk:
+    import StaticContent.ContentTypes.Implicits._
     val staticRoot = Paths.get("src/main/web/")
     val dir = StaticContent.preCache(staticRoot).unsafeRun()
 
@@ -42,9 +42,7 @@ object Main {
     // TODO: better if the build moves the content into a single location?
     val target = Paths.get("../js/target/scala-2.12").toRealPath()
     val jsFile = Paths.get(target.toString, "webrtc-fastopt.js")
-    val scalajs = StaticContent.cache(
-      jsFile, target, ContentType(MediaType.`application/javascript`, Some(HttpCharset.`UTF-8`), boundary = None)
-    )
+    val scalajs = StaticContent.cache(target)(jsFile)
 
     // Add aliases into the cache, such as / -> index.html
     val aliased = aliasing(dir + scalajs)
